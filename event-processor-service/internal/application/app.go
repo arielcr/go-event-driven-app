@@ -2,33 +2,54 @@ package application
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
+	"os"
 
 	"github.com/arielcr/go-event-driven-app/event-processor-service/internal/events"
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 )
 
-type App struct {
+type Service struct {
 	Router *mux.Router
+	Log    *log.Logger
 }
 
-func (a *App) Initialize(r *mux.Router) {
-	a.Router = r
-
-	a.InitializeRoutes()
+func NewService() *Service {
+	s := Service{
+		mux.NewRouter(),
+		log.New(),
+	}
+	return &s
 }
 
-func (a *App) InitializeRoutes() {
-	a.Router.HandleFunc("/event", a.storeEvent).Methods("POST")
+func (s *Service) Initialize() {
+	s.InitializeRoutes()
+	s.InitializeLogger()
+	s.Log.Println("Event Procesor Service started")
 }
 
-func (a *App) Run(addr string) {
-	log.Printf("Service Initialized at port %s...\n", addr)
-	log.Fatal(http.ListenAndServe(addr, a.Router))
+func (s *Service) InitializeRoutes() {
+	s.Router.HandleFunc("/event", s.storeEvent).Methods("POST")
 }
 
-func (a *App) storeEvent(w http.ResponseWriter, r *http.Request) {
+func (s *Service) InitializeLogger() {
+	s.Log.SetOutput(os.Stdout)
+
+	s.Log.SetLevel(log.DebugLevel)
+
+	s.Log.SetFormatter(&log.TextFormatter{
+		DisableColors: false,
+		FullTimestamp: true,
+	})
+}
+
+func (s *Service) Run(addr string) {
+	s.Log.Printf("Service Initialized at port %s\n", addr)
+	s.Log.Fatal(http.ListenAndServe(addr, s.Router))
+}
+
+func (s *Service) storeEvent(w http.ResponseWriter, r *http.Request) {
 	var e events.Event
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&e); err != nil {
@@ -36,6 +57,10 @@ func (a *App) storeEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
+
+	s.Log.WithFields(log.Fields{
+		"payload": e,
+	}).Info("Storing Event in DynamoDB")
 
 	respondWithJSON(w, http.StatusCreated, e)
 }
